@@ -1,4 +1,4 @@
 flask
 anthropic 
-composio cora
-composio cloud 
+composio core
+composio Claude 
