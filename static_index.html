@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis</title>
+  <style>
+    body { background:#0b0f1a; color:#e6f1ff; font-family:sans-serif;
+           display:flex; flex-direction:column; align-items:center;
+           justify-content:center; height:100vh; margin:0; }
+    #orb { width:160px; height:160px; border-radius:50%;
+           background:radial-gradient(circle,#4cc9f0,#4361ee);
+           box-shadow:0 0 40px #4cc9f0; border:none; opacity:0.5; }
+    #orb.awake { opacity:1; animation:pulse 1s infinite; }
+    @keyframes pulse { 50% { transform:scale(1.1); } }
+    #text { margin-top:30px; padding:0 20px; text-align:center; min-height:60px; }
+  </style>
+</head>
+<body>
+  <button id="orb"></button>
+  <div id="text">Tap once to start, then say "Hey Jarvis"</div>
+
+  <script>
+    const orb = document.getElementById("orb");
+    const text = document.getElementById("text");
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.continuous = true;
+    rec.interimResults = false;
+
+    let started = false;
+    let awake = false;
+    let busy = false;
+    let sleepTimer = null;
+
+    const WAKE = /hey[, ]*(jarvis|jarvas|service)/i;
+
+    // First tap starts the always-on listening (browsers require a tap)
+    orb.onclick = () => {
+      if (!started) {
+        started = true;
+        rec.start();
+        text.textContent = "Listening. Say \"Hey Jarvis\"";
+      }
+    };
+
+    // Chrome stops listening now and then, so restart it automatically
+    rec.onend = () => { if (started) { try { rec.start(); } catch (e) {} } };
+    rec.onerror = () => {};
+
+    function goToSleep() {
+      awake = false;
+      orb.classList.remove("awake");
+      text.textContent = "Say \"Hey Jarvis\"";
+    }
+
+    function wakeUp() {
+      awake = true;
+      orb.classList.add("awake");
+      clearTimeout(sleepTimer);
+      sleepTimer = setTimeout(goToSleep, 15000);
+    }
+
+    async function ask(said) {
+      busy = true;
+      text.textContent = "You: " + said;
+      const r = await fetch("/talk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: said })
+      });
+      const data = await r.json();
+      text.textContent = data.reply;
+      const u = new SpeechSynthesisUtterance(data.reply);
+      u.onend = () => { busy = false; wakeUp(); };
+      speechSynthesis.speak(u);
+    }
+
+    rec.onresult = (e) => {
+      if (busy) return;  // ignore Jarvis hearing his own voice
+      const said = e.results[e.results.length - 1][0].transcript.trim();
+
+      if (WAKE.test(said)) {
+        wakeUp();
+        // Anything said after the wake word is the command
+        const command = said.replace(WAKE, "").replace(/^[, ]+/, "");
+        if (command.length > 0) {
+          ask(command);
+        } else {
+          text.textContent = "Yes?";
+          speechSynthesis.speak(new SpeechSynthesisUtterance("Yes?"));
+        }
+      } else if (awake) {
+        wakeUp();
+        ask(said);
+      }
+    };
+  </script>
+</body>
+
+</html>
